@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from typing import List, Union, Tuple
 
-from .model import Presentation, Slide, TextSlide, ImageSlide, SlideOptions, SlideStyle
+from .model import Presentation, Slide, TextSlide, ImageSlide, SlideOptions, SlideStyle, CodeSlide
 
 IMG_KEYWORD = '@img'
+CODE_KEYWORD = '@code'
 
 DEFAULT_SLIDE_OPTIONS = SlideOptions(
     background='black',
@@ -31,7 +32,14 @@ class TextLine:
 class IncludeImageLine:
     path: str
     index: int
-    name = '@img statement'
+    name = f'{IMG_KEYWORD} statement'
+
+
+@dataclass
+class IncludeCodeLine:
+    path: str
+    index: int
+    name = f'{CODE_KEYWORD} statement'
 
 
 @dataclass
@@ -47,7 +55,7 @@ class OptionLine:
     index: int
 
 
-ParsedLine = Union[EmptyLine, TextLine, IncludeImageLine, OptionLine]
+ParsedLine = Union[EmptyLine, TextLine, IncludeImageLine, IncludeCodeLine, OptionLine]
 
 
 def parse(source: str) -> Presentation:
@@ -78,6 +86,11 @@ def _parse_line(line: RawLine) -> ParsedLine:
                 raise ParsingError(line.index, f'No path given in {IMG_KEYWORD} statement')
             path = args[0]
             return IncludeImageLine(path, line.index)
+        elif keyword == CODE_KEYWORD:
+            if len(args) == 0:
+                raise ParsingError(line.index, f'No path given in {CODE_KEYWORD} statement')
+            path = args[0]
+            return IncludeCodeLine(path, line.index)
         else:
             raise ParsingError(line.index, f'Unknown keyword {keyword}')
     elif line.value.startswith(':'):
@@ -107,7 +120,9 @@ def _parse_option(line: RawLine) -> OptionLine:
 def _parse_chunk_to_slide(chunk: List[ParsedLine], presentation_default_slide_options) -> Slide:
     chunk, options = _parse_options(chunk)
     if _is_image_chunk(chunk):
-        slide = _parse_image_chunk(chunk)
+        slide = _parse_image_chunk(chunk, is_meme=options.style == SlideStyle.MEME)
+    elif _is_code_chunk(chunk):
+        slide = _parse_code_chunk(chunk)
     else:
         slide = TextSlide(_strip_escape_char_and_join(chunk))
     slide.options = _with_fallback(options, presentation_default_slide_options)
@@ -141,20 +156,39 @@ def _is_image_chunk(chunk: List[ParsedLine]):
     return any([isinstance(line, IncludeImageLine) for line in chunk])
 
 
-def _parse_image_chunk(chunk: List[ParsedLine]):
+def _is_code_chunk(chunk: List[ParsedLine]):
+    return any([isinstance(line, IncludeCodeLine) for line in chunk])
+
+
+def _parse_image_chunk(chunk: List[ParsedLine], is_meme: bool):
     image_path = None
     text = []
     for line in chunk:
         if isinstance(line, IncludeImageLine):
             if image_path is not None:
-                raise ParsingError(line.index, 'Only one @img statement per slide is allowed')
+                raise ParsingError(line.index, f'Only one {IMG_KEYWORD} statement per slide is allowed')
             image_path = line.path
             # todo validate file exists
         elif isinstance(line, TextLine):
+            if is_meme and len(text) >= 2:
+                raise ParsingError(line.index, 'Image slide with style meme cannot have more than 2 lines of text')
             text.append(line)
         else:
             raise ParsingError(line.index, f'{line.name} not supported in image slide')
     return ImageSlide(image_path=image_path, text=_strip_escape_char_and_join(text) or None)
+
+
+def _parse_code_chunk(chunk: List[ParsedLine]):
+    code_path = None
+    for line in chunk:
+        if isinstance(line, IncludeCodeLine):
+            if code_path is not None:
+                raise ParsingError(line.index, f'Only one {CODE_KEYWORD} statement per slide is allowed')
+            code_path = line.path
+            # todo validate file exists
+        else:
+            raise ParsingError(line.index, f'{line.name} not supported in code slide')
+    return CodeSlide(code_path=code_path)
 
 
 def _filter_comments(lines: List[RawLine]) -> List[RawLine]:

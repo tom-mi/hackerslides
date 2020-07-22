@@ -2,7 +2,7 @@ import textwrap
 
 import pytest
 
-from hackerslides.model import TextSlide, ImageSlide, SlideOptions, SlideStyle
+from hackerslides.model import TextSlide, ImageSlide, SlideOptions, SlideStyle, CodeSlide
 from hackerslides.parser import parse, ParsingError
 
 DEFAULT_SLIDE_OPTIONS = SlideOptions(
@@ -100,6 +100,20 @@ def test_parses_image_slide_with_text():
                                                 options=DEFAULT_SLIDE_OPTIONS)
 
 
+def test_parses_code_slide():
+    # given
+    source = textwrap.dedent('''\
+    @code foo.py
+    ''')
+
+    # when
+    presentation = parse(source)
+
+    # then
+    assert len(presentation.slides) == 1
+    assert presentation.slides[0] == CodeSlide(code_path='foo.py', options=DEFAULT_SLIDE_OPTIONS)
+
+
 def test_parse_options():
     # when
     source = textwrap.dedent('''\
@@ -165,11 +179,26 @@ def test_parse_other_options():
     @img bar.png
     '''), 1, 'Only one @img statement per slide is allowed'),
     (textwrap.dedent('''\
+    @code foo.py
+    @code bar.py
+    '''), 1, 'Only one @code statement per slide is allowed'),
+    (textwrap.dedent('''\
+    @code foo.py
+    Text
+    '''), 1, 'Text line not supported in code slide'),
+    (textwrap.dedent('''\
     :foo
     '''), 0, 'Unknown keyword :foo'),
     (textwrap.dedent('''\
     :style foo
     '''), 0, 'Unknown style foo'),
+    (textwrap.dedent('''\
+    :style meme
+    @img foo.png
+    too
+    many
+    lines
+    '''), 4, 'Image slide with style meme cannot have more than 2 lines of text'),
 ])
 def test_parse_errors(source, line, message):
     with pytest.raises(ParsingError) as e:

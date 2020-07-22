@@ -4,7 +4,7 @@ import subprocess
 from typing import List, Optional, Tuple
 import logging
 
-from hackerslides.model import Presentation, Configuration, TextSlide, ImageSlide, Slide, SlideStyle
+from hackerslides.model import Presentation, Configuration, TextSlide, ImageSlide, Slide, SlideStyle, CodeSlide
 
 
 class Renderer:
@@ -43,6 +43,8 @@ class ImageMagickSlideRenderer:
             return self._render_text_slide()
         elif isinstance(self.slide, ImageSlide):
             return self._render_image_slide()
+        elif isinstance(self.slide, CodeSlide):
+            return self._render_code_slide()
         else:
             raise ValueError(f'Cannot render unsupported slide {self.slide}')
 
@@ -63,6 +65,28 @@ class ImageMagickSlideRenderer:
             self._slide_filename(),
         ])
         pass
+
+    def _render_code_slide(self):
+        rendered_code_path = self._code_filename()
+        _exec([
+            'pygmentize',
+            '-O', 'line_numbers=False',
+            '-O', 'font_size=100',
+            '-O', 'style=vim',
+            '-O', 'font_name=DejaVu Sans Mono',
+            '-o', rendered_code_path,
+            self.slide.code_path
+        ])
+        _exec([
+            *self._render_background(),
+            '-background', 'transparent',
+            '-gravity', 'Center',
+            rendered_code_path,
+            '-sample', f'{self.width}x{self.height}',
+            '-extent', f'{self.width}x{self.height}',
+            '-composite',
+            self._slide_filename(),
+        ])
 
     def _render_background(self) -> List[str]:
         return [
@@ -160,6 +184,9 @@ class ImageMagickSlideRenderer:
 
     def _slide_filename(self) -> str:
         return f'out/slide_{self.slide_index:03d}.png'
+
+    def _code_filename(self) -> str:
+        return f'tmp/slide_{self.slide_index:03d}_code.png'
 
 
 def _exec(command: List[str]) -> str:
