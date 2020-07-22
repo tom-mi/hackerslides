@@ -1,10 +1,17 @@
 import os
+import re
 import shutil
 import subprocess
+from functools import lru_cache
 from typing import List, Optional, Tuple
 import logging
 
 from hackerslides.model import Presentation, Configuration, TextSlide, ImageSlide, Slide, SlideStyle, CodeSlide
+
+
+TEXT_FONTS = ['DejaVu-Sans', 'Roboto', 'Ubuntu']
+CODE_FONTS = ['Source-Code-Pro', 'Ubuntu-Mono', 'DeJaVu-Sans-Mono']
+MEME_FONTS = ['Impact']
 
 
 class Renderer:
@@ -64,16 +71,18 @@ class ImageMagickSlideRenderer:
             *text_cmd,
             self._slide_filename(),
         ])
-        pass
 
     def _render_code_slide(self):
         rendered_code_path = self._code_filename()
+        font = _get_best_font(CODE_FONTS)
+        font_line = ['-O', f'font_name={font.replace("-", " ")}'] if font else []
         _exec([
             'pygmentize',
             '-O', 'line_numbers=False',
             '-O', 'font_size=100',
             '-O', 'style=vim',
-            '-O', 'font_name=DejaVu Sans Mono',
+            '-O', 'image_pad=50',
+            *font_line,
             '-o', rendered_code_path,
             self.slide.code_path
         ])
@@ -82,7 +91,7 @@ class ImageMagickSlideRenderer:
             '-background', 'transparent',
             '-gravity', 'Center',
             rendered_code_path,
-            '-sample', f'{self.width}x{self.height}',
+            '-adaptive-resize', f'{self.width}x{self.height}',
             '-extent', f'{self.width}x{self.height}',
             '-composite',
             self._slide_filename(),
@@ -99,11 +108,13 @@ class ImageMagickSlideRenderer:
         if self.slide.text is None:
             return []
         w, h = self._scaled_size()
+        font = _get_best_font(TEXT_FONTS)
+        font_line = ['-font', font] if font else []
         return [
             '-size', f'{w}x{h}',
             '-background', 'transparent',
             '-fill', self.slide.options.foreground,
-            '-font', 'DeJaVu-Sans',
+            *font_line,
             '-gravity', 'Center',
             f'label:{self.slide.text}',
             '-composite'
@@ -122,13 +133,15 @@ class ImageMagickSlideRenderer:
         scaled_h = h / 6 * self.slide.options.scale
         strokewidth = int(min(w, h) * self.slide.options.scale / 100)
         offset_y = int((h - scaled_h) / 2)
+        font = _get_best_font(MEME_FONTS)
+        font_line = ['-font', font] if font else []
         common_options = [
             '-size', f'{w}x{scaled_h}',
             '-background', 'transparent',
             '-fill', 'white',
             '-stroke', 'black',
             '-strokewidth', str(strokewidth),
-            '-font', 'Impact',
+            *font_line,
         ]
         return [
             *common_options,
@@ -189,6 +202,26 @@ class ImageMagickSlideRenderer:
         return f'tmp/slide_{self.slide_index:03d}_code.png'
 
 
+def _get_best_font(choices: List[str]) -> Optional[str]:
+    available_fonts = _get_available_fonts()
+    for choice in choices:
+        if choice in available_fonts:
+            logging.debug(f'Choosing font {choice} among {choices}')
+            return choice
+    logging.debug(f'No font among {choices} available, falling back to implicit default')
+
+
+@lru_cache
+def _get_available_fonts() -> List[str]:
+    output = _exec(['convert', '-list', 'font'])
+    fonts = []
+    for line in output.splitlines(keepends=False):
+        m = re.match(r'^\s+Font:\s(.*)$', line)
+        if m:
+            fonts.append(m.group(1))
+    return fonts
+
+
 def _exec(command: List[str]) -> str:
     logging.debug(f'Executing command: {command}')
-    return subprocess.check_output(command)
+    return subprocess.check_output(command, text=True)
