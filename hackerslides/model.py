@@ -1,5 +1,11 @@
 from dataclasses import dataclass
-from typing import Optional, Union, List, Tuple, ForwardRef
+from enum import Enum
+from typing import Optional, Union, List, Tuple
+
+
+class SlideStyle(Enum):
+    DEFAULT = 'default'
+    MEME = 'meme'
 
 
 @dataclass
@@ -7,19 +13,8 @@ class SlideOptions:
     background: Optional[str] = None
     foreground: Optional[str] = None
     cover: Optional[bool] = None
-    meme: Optional[bool] = None
+    style: Optional[SlideStyle] = None
     scale: Optional[float] = None
-
-    def with_default(self, other: ForwardRef('SlideOptions')) -> ForwardRef('SlideOptions'):
-        return SlideOptions(
-            other.background if self.background is None else self.background,
-            other.foreground if self.foreground is None else self.foreground,
-            other.cover if self.cover is None else self.cover,
-            other.meme if self.meme is None else self.meme,
-            other.scale if self.scale is None else self.scale,
-        )
-
-
 
 
 @dataclass
@@ -47,7 +42,6 @@ Slide = Union[TextSlide, ImageSlide, CodeSlide]
 @dataclass
 class Presentation:
     slides: List[Slide]
-    options: SlideOptions = SlideOptions()
 
 
 @dataclass

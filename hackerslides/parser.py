@@ -1,9 +1,17 @@
 from dataclasses import dataclass
 from typing import List, Union, Tuple
 
-from .model import Presentation, Slide, TextSlide, ImageSlide, SlideOptions
+from .model import Presentation, Slide, TextSlide, ImageSlide, SlideOptions, SlideStyle
 
 IMG_KEYWORD = '@img'
+
+DEFAULT_SLIDE_OPTIONS = SlideOptions(
+    background='black',
+    foreground='white',
+    cover=False,
+    style=SlideStyle.DEFAULT,
+    scale=1,
+)
 
 
 @dataclass
@@ -36,6 +44,7 @@ class EmptyLine:
 class OptionLine:
     key: str
     args: List[str]
+    index: int
 
 
 ParsedLine = Union[EmptyLine, TextLine, IncludeImageLine, OptionLine]
@@ -47,13 +56,14 @@ def parse(source: str) -> Presentation:
     chunks = _split_into_chunks(parsed_lines)
 
     if _is_option_only_chunk(chunks[0]):
-        _, options = _parse_options(chunks.pop(0))
+        _, presentation_options = _parse_options(chunks.pop(0))
     else:
-        options = SlideOptions()
+        presentation_options = SlideOptions()
+    presentation_default_slide_options = _with_fallback(presentation_options, DEFAULT_SLIDE_OPTIONS)
 
-    slides = [_parse_chunk_to_slide(chunk) for chunk in chunks]
+    slides = [_parse_chunk_to_slide(chunk, presentation_default_slide_options) for chunk in chunks]
 
-    return Presentation(slides=slides, options=options)
+    return Presentation(slides=slides)
 
 
 def _split_into_lines(source: str) -> List[RawLine]:
@@ -82,25 +92,25 @@ def _parse_line(line: RawLine) -> ParsedLine:
 
 def _parse_option(line: RawLine) -> OptionLine:
     keyword, *args = line.value.split()
-    if keyword in [':fg', ':bg', ':scale']:
+    if keyword in [':fg', ':bg', ':scale', ':style']:
         if len(args) != 1:
             raise ParsingError(line.index, f'Expected one argument for {keyword} statement')
-        return OptionLine(keyword[1:], args)
-    elif keyword in [':cover', ':meme', ':nocover', ':nomeme']:
+        return OptionLine(keyword[1:], args, line.index)
+    elif keyword in [':cover', ':nocover', ':nostyle']:
         if len(args) != 0:
             raise ParsingError(line.index, f'Expected no argument for {keyword} statement')
-        return OptionLine(keyword[1:], args)
+        return OptionLine(keyword[1:], args, line.index)
     else:
         raise ParsingError(line.index, f'Unknown keyword {keyword}')
 
 
-def _parse_chunk_to_slide(chunk: List[ParsedLine]) -> Slide:
+def _parse_chunk_to_slide(chunk: List[ParsedLine], presentation_default_slide_options) -> Slide:
     chunk, options = _parse_options(chunk)
     if _is_image_chunk(chunk):
         slide = _parse_image_chunk(chunk)
     else:
         slide = TextSlide(_strip_escape_char_and_join(chunk))
-    slide.options = options
+    slide.options = _with_fallback(options, presentation_default_slide_options)
     return slide
 
 
@@ -174,15 +184,29 @@ def _parse_options(chunk: List[ParsedLine]) -> Tuple[List[ParsedLine], SlideOpti
                 options.cover = True
             elif line.key == 'nocover':
                 options.cover = False
-            elif line.key == 'meme':
+            elif line.key == 'style':
+                if line.args[0] == 'meme':
+                    options.style = SlideStyle.MEME
+                else:
+                    raise ParsingError(line.index, f'Unknown style {line.args[0]}')
                 options.meme = True
-            elif line.key == 'nomeme':
-                options.meme = False
+            elif line.key == 'nostyle':
+                options.style = SlideStyle.DEFAULT
             else:
                 raise ValueError(f'Unsupported option key {line.key}')
         else:
             filtered_lines.append(line)
     return filtered_lines, options
+
+
+def _with_fallback(options: SlideOptions, fallback: SlideOptions) -> SlideOptions:
+    return SlideOptions(
+        fallback.background if options.background is None else options.background,
+        fallback.foreground if options.foreground is None else options.foreground,
+        fallback.cover if options.cover is None else options.cover,
+        fallback.style if options.style is None else options.style,
+        fallback.scale if options.scale is None else options.scale,
+    )
 
 
 class ParsingError(Exception):

@@ -2,8 +2,16 @@ import textwrap
 
 import pytest
 
-from hackerslides.model import TextSlide, ImageSlide, SlideOptions
+from hackerslides.model import TextSlide, ImageSlide, SlideOptions, SlideStyle
 from hackerslides.parser import parse, ParsingError
+
+DEFAULT_SLIDE_OPTIONS = SlideOptions(
+    background='black',
+    foreground='white',
+    cover=False,
+    style=SlideStyle.DEFAULT,
+    scale=1,
+)
 
 
 def test_parses_minimal_presentation():
@@ -17,7 +25,7 @@ def test_parses_minimal_presentation():
 
     # then
     assert len(presentation.slides) == 1
-    assert presentation.slides[0] == TextSlide('Hello')
+    assert presentation.slides[0] == TextSlide('Hello', options=DEFAULT_SLIDE_OPTIONS)
 
 
 def test_parses_multiline_text_slides():
@@ -36,8 +44,8 @@ def test_parses_multiline_text_slides():
 
     # then
     assert len(presentation.slides) == 2
-    assert presentation.slides[0] == TextSlide('Hello\nWorld')
-    assert presentation.slides[1] == TextSlide('Hello\n\n  World!')
+    assert presentation.slides[0] == TextSlide('Hello\nWorld', options=DEFAULT_SLIDE_OPTIONS)
+    assert presentation.slides[1] == TextSlide('Hello\n\n  World!', options=DEFAULT_SLIDE_OPTIONS)
 
 
 def test_ignores_comments():
@@ -57,8 +65,8 @@ def test_ignores_comments():
 
     # then
     assert len(presentation.slides) == 2
-    assert presentation.slides[0] == TextSlide('Hello\nWorld')
-    assert presentation.slides[1] == TextSlide('Hello # no comment\n# no comment')
+    assert presentation.slides[0] == TextSlide('Hello\nWorld', options=DEFAULT_SLIDE_OPTIONS)
+    assert presentation.slides[1] == TextSlide('Hello # no comment\n# no comment', options=DEFAULT_SLIDE_OPTIONS)
 
 
 def test_parses_minimal_image_slide():
@@ -72,7 +80,7 @@ def test_parses_minimal_image_slide():
 
     # then
     assert len(presentation.slides) == 1
-    assert presentation.slides[0] == ImageSlide(image_path='foo.png')
+    assert presentation.slides[0] == ImageSlide(image_path='foo.png', options=DEFAULT_SLIDE_OPTIONS)
 
 
 def test_parses_image_slide_with_text():
@@ -88,40 +96,61 @@ def test_parses_image_slide_with_text():
 
     # then
     assert len(presentation.slides) == 1
-    assert presentation.slides[0] == ImageSlide(image_path='foo.png', text='This is\nsome text')
+    assert presentation.slides[0] == ImageSlide(image_path='foo.png', text='This is\nsome text',
+                                                options=DEFAULT_SLIDE_OPTIONS)
 
 
 def test_parse_options():
     # when
     source = textwrap.dedent('''\
-    :meme
-    
     NoOptions
     
     FirstOptions
     :fg white
     :bg blue
     :cover
-    :meme
+    :style meme
     :scale 0.5
-    
-    OtherOptions
-    :nocover
-    :nomeme
     ''')
 
     # when
     presentation = parse(source)
 
     # then
-    assert len(presentation.slides) == 3
-    assert presentation.options == SlideOptions(meme=True)
-    assert presentation.slides[0] == TextSlide('NoOptions', options=SlideOptions())
+    assert len(presentation.slides) == 2
+    assert presentation.slides[0] == TextSlide('NoOptions', options=DEFAULT_SLIDE_OPTIONS)
     assert presentation.slides[1] == TextSlide('FirstOptions',
                                                options=SlideOptions(foreground='white', background='blue', cover=True,
-                                                                    meme=True, scale=0.5))
-    assert presentation.slides[2] == TextSlide('OtherOptions',
-                                               options=SlideOptions(cover=False, meme=False))
+                                                                    style=SlideStyle.MEME, scale=0.5))
+
+
+def test_parse_other_options():
+    # when
+    source = textwrap.dedent('''\
+    :fg green
+    :bg blue
+    :cover
+    :style meme
+    :scale 0.5
+    
+    NoOptions
+    
+    OtherOptions
+    :nocover
+    :nostyle
+    ''')
+
+    # when
+    presentation = parse(source)
+
+    # then
+    assert len(presentation.slides) == 2
+    assert presentation.slides[0] == TextSlide('NoOptions',
+                                               options=SlideOptions(foreground='green', background='blue', cover=True,
+                                                                    style=SlideStyle.MEME, scale=0.5))
+    assert presentation.slides[1] == TextSlide('OtherOptions',
+                                               options=SlideOptions(foreground='green', background='blue', cover=False,
+                                                                    style=SlideStyle.DEFAULT, scale=0.5))
 
 
 @pytest.mark.parametrize('source, line, message', [
@@ -138,6 +167,9 @@ def test_parse_options():
     (textwrap.dedent('''\
     :foo
     '''), 0, 'Unknown keyword :foo'),
+    (textwrap.dedent('''\
+    :style foo
+    '''), 0, 'Unknown style foo'),
 ])
 def test_parse_errors(source, line, message):
     with pytest.raises(ParsingError) as e:
